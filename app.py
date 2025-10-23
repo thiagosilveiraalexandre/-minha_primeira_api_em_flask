@@ -6,18 +6,28 @@ from flask_limiter.util import get_remote_address
 from flask_cors import CORS
 from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
+import datetime
 
 # Carregar variáveis do arquivo .env
 load_dotenv()
 
-app = Flask(__name__)
+app = Flask(__name__, 
+    static_folder='static',  # Adicione esta linha
+    template_folder='templates'  # E esta se tiver templates
+)
 
 # 🔒 CONFIGURAÇÕES DE SEGURANÇA
-app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'chave-secreta-padrao')
-app.config['JWT_ACCESS_TOKEN_EXPIRES'] = 3600  # 1 hora
+app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'chave-secreta-padrao-mais-longa-para-seguranca')
+app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(hours=1)
 
 jwt = JWTManager(app)
-limiter = Limiter(get_remote_address, app=app)
+
+# ✅ CORREÇÃO: Configurar o Limiter corretamente
+limiter = Limiter(
+    app=app,
+    key_func=get_remote_address,
+    default_limits=["200 per day", "50 per hour"]
+)
 
 CORS(app)
 
@@ -27,11 +37,15 @@ users = [
     {"id": 2, "name": "Maria Santos", "email": "maria@email.com", "role": "admin"}
 ]
 
-# Usuários para autenticação (em produção, use banco de dados)
-users_db = {
-    "admin": generate_password_hash("admin123"),
-    "usuario": generate_password_hash("senha123")
-}
+# ✅ CORREÇÃO: Criar senhas de forma mais confiável
+def init_users_db():
+    return {
+        "admin": generate_password_hash("admin123"),
+        "usuario": generate_password_hash("senha123"),
+        "test": generate_password_hash("test123")
+    }
+
+users_db = init_users_db()
 
 # 🔓 ROTA PÚBLICA - Página inicial
 @app.route('/')
@@ -40,7 +54,11 @@ def home():
     <html>
     <head>
         <title>Minha API Segura</title>
-        <link rel="stylesheet" href="/static/style.css">
+        <style>
+            body { font-family: Arial, sans-serif; margin: 40px; }
+            .container { max-width: 800px; margin: 0 auto; }
+            .endpoints { background: #f5f5f5; padding: 20px; border-radius: 5px; }
+        </style>
     </head>
     <body>
         <div class="container">
@@ -53,6 +71,12 @@ def home():
                     <li><strong>GET /api/users</strong> - Listar usuários (protegido)</li>
                     <li><strong>GET /api/users/&lt;id&gt;</strong> - Buscar usuário (protegido)</li>
                     <li><strong>GET /api/health</strong> - Health check</li>
+                </ul>
+                <p><strong>Credenciais para teste:</strong></p>
+                <ul>
+                    <li>Usuário: <code>admin</code> | Senha: <code>admin123</code></li>
+                    <li>Usuário: <code>usuario</code> | Senha: <code>senha123</code></li>
+                    <li>Usuário: <code>test</code> | Senha: <code>test123</code></li>
                 </ul>
             </div>
         </div>
@@ -67,41 +91,46 @@ def health_check():
     return jsonify({
         "status": "healthy",
         "service": "Minha API Segura",
-        "timestamp": "2024-01-01T00:00:00Z"
+        "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
     })
 
 # 🔓 ROTA PÚBLICA - Login
 @app.route('/api/login', methods=['POST'])
-@limiter.limit("5 per minute")  # Prevenir brute force
+@limiter.limit("10 per minute")  # Prevenir brute force
 def login():
     try:
-        if not request.is_json:
+        # ✅ CORREÇÃO: Verificar conteúdo JSON de forma mais robusta
+        if not request.json:
             return jsonify({"error": "JSON expected"}), 400
             
-        username = request.json.get('username')
-        password = request.json.get('password')
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
         
         if not username or not password:
             return jsonify({"error": "Username e password são obrigatórios"}), 400
         
-        if username in users_db and check_password_hash(users_db[username], password):
-            access_token = create_access_token(identity=username)
-            return jsonify({
-                "access_token": access_token,
-                "token_type": "bearer",
-                "expires_in": 3600,
-                "user": username
-            })
+        # ✅ CORREÇÃO: Verificar usuário e senha
+        if username in users_db:
+            if check_password_hash(users_db[username], password):
+                access_token = create_access_token(identity=username)
+                return jsonify({
+                    "access_token": access_token,
+                    "token_type": "bearer",
+                    "expires_in": 3600,
+                    "user": username
+                })
         
         return jsonify({"error": "Credenciais inválidas"}), 401
     
     except Exception as e:
+        print(f"Erro no login: {str(e)}")  # Para debug nos logs
         return jsonify({"error": "Erro interno do servidor"}), 500
 
 # 🔒 ROTA PROTEGIDA - Listar usuários
 @app.route('/api/users')
 @jwt_required()
-@limiter.limit("10 per minute")
+@limiter.limit("20 per minute")
 def get_users():
     return jsonify({
         "users": users,
@@ -123,6 +152,28 @@ def get_user(user_id):
     
     return jsonify(user)
 
+# ✅ CORREÇÃO: Adicionar handler para erros do JWT
+@jwt.invalid_token_loader
+def invalid_token_callback(error):
+    return jsonify({
+        "error": "Token inválido",
+        "message": "Faça login novamente"
+    }), 422
+
+@jwt.expired_token_loader
+def expired_token_callback(jwt_header, jwt_payload):
+    return jsonify({
+        "error": "Token expirado",
+        "message": "Faça login novamente"
+    }), 401
+
+@jwt.unauthorized_loader
+def unauthorized_response(callback):
+    return jsonify({
+        "error": "Token de acesso requerido",
+        "message": "Faça login em /api/login"
+    }), 401
+
 # 🔒 HEADERS DE SEGURANÇA
 @app.after_request
 def add_security_headers(response):
@@ -132,13 +183,6 @@ def add_security_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
-# Manipulador de erro para JWT
-@jwt.unauthorized_loader
-def unauthorized_response(callback):
-    return jsonify({
-        "error": "Token de acesso requerido",
-        "message": "Faça login em /api/login"
-    }), 401
-
 if __name__ == '__main__':
-    app.run(debug=False)
+    port = int(os.environ.get("PORT", 5000))
+    app.run(host='0.0.0.0', port=port, debug=False)
