@@ -8,42 +8,48 @@ from werkzeug.security import generate_password_hash, check_password_hash
 from dotenv import load_dotenv
 import datetime
 
-# Carregar variáveis do arquivo .env
+# Carregar variáveis do arquivo .env (para configurações sensíveis como chaves secretas)
 load_dotenv()
 
+# Inicializar a aplicação Flask com pastas para arquivos estáticos e templates
 app = Flask(__name__, 
     static_folder='static',
     template_folder='templates'
 )
 
 # 🔒 CONFIGURAÇÕES DE SEGURANÇA
+# Chave secreta para JWT (pode ser definida no .env para produção)
 app.config['JWT_SECRET_KEY'] = os.getenv('JWT_SECRET_KEY', 'chave-secreta-padrao-mais-longa-para-seguranca')
+# Tempo de expiração do token de acesso (1 hora)
 app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(hours=1)
 
+# Inicializar o gerenciador de JWT
 jwt = JWTManager(app)
 
+# Inicializar o limitador de taxa para prevenir abusos (ex: 200 requisições por dia, 50 por hora)
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
     default_limits=["200 per day", "50 per hour"]
 )
 
+# Habilitar CORS para permitir requisições de origens diferentes (útil para frontends)
 CORS(app)
 
-# "Banco de dados" em memória
+# "Banco de dados" em memória (simulação de dados de usuários)
 users = [
     {"id": 1, "name": "João Silva", "email": "joao@email.com", "role": "user"},
     {"id": 2, "name": "Maria Santos", "email": "maria@email.com", "role": "admin"}
 ]
 
-# Usuários para autenticação
+# Usuários para autenticação (senhas hashadas para segurança)
 users_db = {
     "admin": generate_password_hash("admin123"),
     "usuario": generate_password_hash("senha123"),
     "test": generate_password_hash("test123")
 }
 
-# 🔓 ROTA PÚBLICA - Página inicial
+# 🔓 ROTA PÚBLICA - Página inicial (agora com links clicáveis para os endpoints)
 @app.route('/')
 def home():
     return """
@@ -59,20 +65,21 @@ def home():
             <div class="endpoints">
                 <h3>Endpoints disponíveis:</h3>
                 <ul>
-                    <li><strong>POST /api/login</strong> - Fazer login</li>
-                    <li><strong>GET /api/users</strong> - Listar usuários (protegido)</li>
-                    <li><strong>GET /api/users/&lt;id&gt;</strong> - Buscar usuário (protegido)</li>
+                    <li><a href="/login"><strong>GET /login</strong> - Página de login visual</a></li>
+                    <li><strong>POST /api/login</strong> - Fazer login (via API)</li>
+                    <li><strong>GET /api/users</strong> - Listar usuários (protegido por JWT)</li>
+                    <li><strong>GET /api/users/&lt;id&gt;</strong> - Buscar usuário (protegido por JWT)</li>
                     <li><strong>GET /api/health</strong> - Health check</li>
-                    <li><strong>GET /login</strong> - Página de login visual</li>
+                    <li><a href="/teste"><strong>GET /teste</strong> - Página de teste simples</a></li>
                 </ul>
-                <p><em>Consulte a documentação para credenciais de teste</em></p>
+                <p><em>Para testar, faça login em /login com as credenciais: admin/admin123, usuario/senha123 ou test/test123</em></p>
             </div>
         </div>
     </body>
     </html>
     """
 
-# 🔓 PÁGINA DE LOGIN VISUAL
+# 🔓 PÁGINA DE LOGIN VISUAL (agora com credenciais de teste visíveis e botões funcionais)
 @app.route('/login')
 def login_page():
     return '''
@@ -169,8 +176,10 @@ def login_page():
             </form>
             
             <div class="info-box">
-                <strong>💡 Informação:</strong><br>
-                Use as credenciais fornecidas separadamente para testes.
+                <strong>💡 Credenciais de teste:</strong><br>
+                - admin / admin123<br>
+                - usuario / senha123<br>
+                - test / test123
             </div>
             
             <div id="resultado"></div>
@@ -217,7 +226,7 @@ def login_page():
             } catch (error) {
                 resultado.innerHTML = `
                     <div class="error-message">
-                        <strong>❌ Erro de conexão:</strong> ${error}
+                        <strong>❌ Erro de conexão:</strong> ${error.message}
                     </div>
                 `;
             }
@@ -231,7 +240,7 @@ def login_page():
                 const data = await response.json();
                 alert(`✅ API funcionando!\\nEncontrados ${data.count} usuários.`);
             } catch (error) {
-                alert('❌ Erro ao acessar API: ' + error);
+                alert('❌ Erro ao acessar API: ' + error.message);
             }
         }
         </script>
@@ -239,9 +248,9 @@ def login_page():
     </html>
     '''
 
-# 🔓 ROTA PÚBLICA - Health Check
+# 🔓 ROTA PÚBLICA - Health Check (verifica se a API está funcionando)
 @app.route('/api/health')
-@limiter.limit("30 per minute")
+@limiter.limit("30 per minute")  # Limite de 30 requisições por minuto para esta rota
 def health_check():
     return jsonify({
         "status": "healthy",
@@ -249,41 +258,46 @@ def health_check():
         "timestamp": datetime.datetime.utcnow().isoformat() + "Z"
     })
 
-# 🔓 ROTA PÚBLICA - Login
+# 🔓 ROTA PÚBLICA - Login (autentica o usuário e retorna um token JWT)
 @app.route('/api/login', methods=['POST'])
-@limiter.limit("10 per minute")
+@limiter.limit("10 per minute")  # Limite de 10 logins por minuto para prevenir brute force
 def login():
     try:
+        # Verificar se o corpo da requisição é JSON
         if not request.json:
-            return jsonify({"error": "JSON expected"}), 400
+            return jsonify({"error": "JSON esperado"}), 400
             
         data = request.get_json()
         username = data.get('username')
         password = data.get('password')
         
+        # Validar campos obrigatórios
         if not username or not password:
             return jsonify({"error": "Username e password são obrigatórios"}), 400
         
+        # Verificar credenciais
         if username in users_db:
             if check_password_hash(users_db[username], password):
+                # Criar token de acesso
                 access_token = create_access_token(identity=username)
                 return jsonify({
                     "access_token": access_token,
                     "token_type": "bearer",
-                    "expires_in": 3600,
+                    "expires_in": 3600,  # 1 hora em segundos
                     "user": username
                 })
         
+        # Credenciais inválidas
         return jsonify({"error": "Credenciais inválidas"}), 401
     
     except Exception as e:
         print(f"Erro no login: {str(e)}")
         return jsonify({"error": "Erro interno do servidor"}), 500
 
-# 🔒 ROTA PROTEGIDA - Listar usuários
+# 🔒 ROTA PROTEGIDA - Listar usuários (requer token JWT)
 @app.route('/api/users')
-@jwt_required()
-@limiter.limit("20 per minute")
+@jwt_required()  # Requer autenticação JWT
+@limiter.limit("20 per minute")  # Limite de 20 requisições por minuto
 def get_users():
     return jsonify({
         "users": users,
@@ -291,13 +305,15 @@ def get_users():
         "message": "Dados protegidos por JWT"
     })
 
-# 🔒 ROTA PROTEGIDA - Buscar usuário específico
+# 🔒 ROTA PROTEGIDA - Buscar usuário específico (requer token JWT)
 @app.route('/api/users/<int:user_id>')
-@jwt_required()
+@jwt_required()  # Requer autenticação JWT
 def get_user(user_id):
+    # Validar ID
     if user_id <= 0:
         return jsonify({"error": "ID de usuário inválido"}), 400
     
+    # Buscar usuário na lista
     user = next((u for u in users if u['id'] == user_id), None)
     
     if not user:
@@ -305,7 +321,7 @@ def get_user(user_id):
     
     return jsonify(user)
 
-# ROTA DE TESTE SIMPLES - Adicione isso temporariamente
+# ROTA DE TESTE SIMPLES - Página básica para verificar se o servidor está rodando
 @app.route('/teste')
 def teste():
     return '''
@@ -313,12 +329,13 @@ def teste():
     <body>
         <h1>Teste Simples</h1>
         <input type="text" placeholder="Digite algo">
-        <button>Clique aqui</button>
+        <button onclick="alert('Botão clicado!')">Clique aqui</button>
+        <p><a href="/">Voltar à página inicial</a></p>
     </body>
     </html>
     '''
 
-# ✅ Handlers para erros do JWT
+# ✅ Handlers para erros do JWT (personalizam mensagens de erro)
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
     return jsonify({
@@ -340,7 +357,7 @@ def unauthorized_response(callback):
         "message": "Faça login em /api/login"
     }), 401
 
-# 🔒 HEADERS DE SEGURANÇA
+# 🔒 HEADERS DE SEGURANÇA (adicionados a todas as respostas para proteger contra ataques comuns)
 @app.after_request
 def add_security_headers(response):
     response.headers['X-Content-Type-Options'] = 'nosniff'
@@ -349,11 +366,12 @@ def add_security_headers(response):
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
 
-# Servir arquivos estáticos
+# Servir arquivos estáticos (CSS, JS, etc.)
 @app.route('/static/<path:filename>')
 def serve_static(filename):
     return send_from_directory('static', filename)
 
+# Executar a aplicação
 if __name__ == '__main__':
-    port = int(os.environ.get("PORT", 5000))
-    app.run(host='0.0.0.0', port=port, debug=False)
+    port = int(os.environ.get("PORT", 5000))  # Porta padrão 5000, ou definida pela variável de ambiente
+    app.run(host='0.0.0.0', port=port, debug=False)  # Não usar debug=True em produção
