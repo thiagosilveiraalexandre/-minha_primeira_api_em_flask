@@ -22,7 +22,6 @@ app.config['JWT_ACCESS_TOKEN_EXPIRES'] = datetime.timedelta(hours=1)
 
 jwt = JWTManager(app)
 
-# ✅ CORREÇÃO: Configurar o Limiter corretamente
 limiter = Limiter(
     app=app,
     key_func=get_remote_address,
@@ -37,15 +36,12 @@ users = [
     {"id": 2, "name": "Maria Santos", "email": "maria@email.com", "role": "admin"}
 ]
 
-# ✅ CORREÇÃO: Criar senhas de forma mais confiável
-def init_users_db():
-    return {
-        "admin": generate_password_hash("admin123"),
-        "usuario": generate_password_hash("senha123"),
-        "test": generate_password_hash("test123")
-    }
-
-users_db = init_users_db()
+# Usuários para autenticação
+users_db = {
+    "admin": generate_password_hash("admin123"),
+    "usuario": generate_password_hash("senha123"),
+    "test": generate_password_hash("test123")
+}
 
 # 🔓 ROTA PÚBLICA - Página inicial
 @app.route('/')
@@ -69,12 +65,7 @@ def home():
                     <li><strong>GET /api/health</strong> - Health check</li>
                     <li><strong>GET /login</strong> - Página de login visual</li>
                 </ul>
-                <p><strong>Credenciais para teste:</strong></p>
-                <ul>
-                    <li>Usuário: <code>admin</code> | Senha: <code>admin123</code></li>
-                    <li>Usuário: <code>usuario</code> | Senha: <code>senha123</code></li>
-                    <li>Usuário: <code>test</code> | Senha: <code>test123</code></li>
-                </ul>
+                <p><em>Consulte a documentação para credenciais de teste</em></p>
             </div>
         </div>
     </body>
@@ -126,12 +117,13 @@ def login_page():
                 background: #2980b9;
             }
             
-            .credential-box {
+            .info-box {
                 background: #f8f9fa;
                 padding: 15px;
                 border-radius: 5px;
                 margin-top: 20px;
                 border-left: 4px solid #3498db;
+                font-size: 14px;
             }
             
             #resultado {
@@ -176,10 +168,9 @@ def login_page():
                 <button type="submit">Entrar</button>
             </form>
             
-            <div class="credential-box">
-                <strong>Credenciais para teste:</strong><br>
-                👤 Usuário: <code>admin</code><br>
-                🔑 Senha: <code>admin123</code>
+            <div class="info-box">
+                <strong>💡 Informação:</strong><br>
+                Use as credenciais fornecidas separadamente para testes.
             </div>
             
             <div id="resultado"></div>
@@ -210,7 +201,7 @@ def login_page():
                     resultado.innerHTML = `
                         <div class="success-message">
                             <strong>✅ Login bem-sucedido!</strong><br>
-                            Token: ${data.access_token.substring(0, 50)}...<br>
+                            Usuário: ${data.user}<br>
                             <button class="test-button" onclick="testarAPI('${data.access_token}')">
                                 Testar API Protegida
                             </button>
@@ -238,8 +229,7 @@ def login_page():
                     headers: { 'Authorization': 'Bearer ' + token }
                 });
                 const data = await response.json();
-                alert(`✅ API funcionando!\\nEncontrados ${data.count} usuários.\\n\\nClique em OK para ver no console.`);
-                console.log('Dados dos usuários:', data);
+                alert(`✅ API funcionando!\\nEncontrados ${data.count} usuários.`);
             } catch (error) {
                 alert('❌ Erro ao acessar API: ' + error);
             }
@@ -261,7 +251,7 @@ def health_check():
 
 # 🔓 ROTA PÚBLICA - Login
 @app.route('/api/login', methods=['POST'])
-@limiter.limit("10 per minute")  # Prevenir brute force
+@limiter.limit("10 per minute")
 def login():
     try:
         if not request.json:
