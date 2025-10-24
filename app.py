@@ -305,6 +305,19 @@ def get_user(user_id):
     
     return jsonify(user)
 
+# ROTA DE TESTE SIMPLES - Adicione isso temporariamente
+@app.route('/teste')
+def teste():
+    return '''
+    <html>
+    <body>
+        <h1>Teste Simples</h1>
+        <input type="text" placeholder="Digite algo">
+        <button>Clique aqui</button>
+    </body>
+    </html>
+    '''
+
 # ✅ Handlers para erros do JWT
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
