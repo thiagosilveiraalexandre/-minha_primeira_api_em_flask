@@ -1,5 +1,5 @@
 import os
-from flask import Flask, jsonify, request
+from flask import Flask, jsonify, request, send_from_directory
 from flask_jwt_extended import JWTManager, jwt_required, create_access_token
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -12,8 +12,8 @@ import datetime
 load_dotenv()
 
 app = Flask(__name__, 
-    static_folder='static',  # Adicione esta linha
-    template_folder='templates'  # E esta se tiver templates
+    static_folder='static',
+    template_folder='templates'
 )
 
 # 🔒 CONFIGURAÇÕES DE SEGURANÇA
@@ -54,11 +54,7 @@ def home():
     <html>
     <head>
         <title>Minha API Segura</title>
-        <style>
-            body { font-family: Arial, sans-serif; margin: 40px; }
-            .container { max-width: 800px; margin: 0 auto; }
-            .endpoints { background: #f5f5f5; padding: 20px; border-radius: 5px; }
-        </style>
+        <link rel="stylesheet" href="/static/style.css">
     </head>
     <body>
         <div class="container">
@@ -71,6 +67,7 @@ def home():
                     <li><strong>GET /api/users</strong> - Listar usuários (protegido)</li>
                     <li><strong>GET /api/users/&lt;id&gt;</strong> - Buscar usuário (protegido)</li>
                     <li><strong>GET /api/health</strong> - Health check</li>
+                    <li><strong>GET /login</strong> - Página de login visual</li>
                 </ul>
                 <p><strong>Credenciais para teste:</strong></p>
                 <ul>
@@ -83,6 +80,174 @@ def home():
     </body>
     </html>
     """
+
+# 🔓 PÁGINA DE LOGIN VISUAL
+@app.route('/login')
+def login_page():
+    return '''
+    <!DOCTYPE html>
+    <html>
+    <head>
+        <title>Login - Minha API</title>
+        <link rel="stylesheet" href="/static/style.css">
+        <style>
+            .login-form {
+                background: white;
+                padding: 40px;
+                border-radius: 10px;
+                box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                max-width: 400px;
+                margin: 50px auto;
+            }
+            
+            .login-form input {
+                width: 100%;
+                padding: 12px;
+                margin: 10px 0;
+                border: 1px solid #ddd;
+                border-radius: 5px;
+                box-sizing: border-box;
+                font-size: 16px;
+            }
+            
+            .login-form button {
+                width: 100%;
+                padding: 12px;
+                background: #3498db;
+                color: white;
+                border: none;
+                border-radius: 5px;
+                cursor: pointer;
+                font-size: 16px;
+                margin-top: 15px;
+            }
+            
+            .login-form button:hover {
+                background: #2980b9;
+            }
+            
+            .credential-box {
+                background: #f8f9fa;
+                padding: 15px;
+                border-radius: 5px;
+                margin-top: 20px;
+                border-left: 4px solid #3498db;
+            }
+            
+            #resultado {
+                margin-top: 15px;
+                padding: 10px;
+                border-radius: 5px;
+            }
+            
+            .success-message {
+                color: green;
+                background: #d4edda;
+                padding: 15px;
+                border-radius: 5px;
+                border: 1px solid #c3e6cb;
+            }
+            
+            .error-message {
+                color: red;
+                background: #f8d7da;
+                padding: 15px;
+                border-radius: 5px;
+                border: 1px solid #f5c6cb;
+            }
+            
+            .test-button {
+                margin-top: 10px;
+                padding: 8px 15px;
+                background: #28a745;
+                color: white;
+                border: none;
+                border-radius: 4px;
+                cursor: pointer;
+            }
+        </style>
+    </head>
+    <body>
+        <div class="container login-form">
+            <h1>🔐 Login</h1>
+            <form onsubmit="fazerLogin(event)">
+                <input type="text" id="username" placeholder="Usuário" required>
+                <input type="password" id="password" placeholder="Senha" required>
+                <button type="submit">Entrar</button>
+            </form>
+            
+            <div class="credential-box">
+                <strong>Credenciais para teste:</strong><br>
+                👤 Usuário: <code>admin</code><br>
+                🔑 Senha: <code>admin123</code>
+            </div>
+            
+            <div id="resultado"></div>
+        </div>
+
+        <script>
+        async function fazerLogin(event) {
+            event.preventDefault();
+            
+            const username = document.getElementById('username').value;
+            const password = document.getElementById('password').value;
+            const resultado = document.getElementById('resultado');
+            
+            // Limpar resultado anterior
+            resultado.innerHTML = '';
+            resultado.className = '';
+            
+            try {
+                const response = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({username, password})
+                });
+                
+                const data = await response.json();
+                
+                if (response.ok) {
+                    resultado.innerHTML = `
+                        <div class="success-message">
+                            <strong>✅ Login bem-sucedido!</strong><br>
+                            Token: ${data.access_token.substring(0, 50)}...<br>
+                            <button class="test-button" onclick="testarAPI('${data.access_token}')">
+                                Testar API Protegida
+                            </button>
+                        </div>
+                    `;
+                } else {
+                    resultado.innerHTML = `
+                        <div class="error-message">
+                            <strong>❌ Erro:</strong> ${data.error}
+                        </div>
+                    `;
+                }
+            } catch (error) {
+                resultado.innerHTML = `
+                    <div class="error-message">
+                        <strong>❌ Erro de conexão:</strong> ${error}
+                    </div>
+                `;
+            }
+        }
+        
+        async function testarAPI(token) {
+            try {
+                const response = await fetch('/api/users', {
+                    headers: { 'Authorization': 'Bearer ' + token }
+                });
+                const data = await response.json();
+                alert(`✅ API funcionando!\\nEncontrados ${data.count} usuários.\\n\\nClique em OK para ver no console.`);
+                console.log('Dados dos usuários:', data);
+            } catch (error) {
+                alert('❌ Erro ao acessar API: ' + error);
+            }
+        }
+        </script>
+    </body>
+    </html>
+    '''
 
 # 🔓 ROTA PÚBLICA - Health Check
 @app.route('/api/health')
@@ -99,7 +264,6 @@ def health_check():
 @limiter.limit("10 per minute")  # Prevenir brute force
 def login():
     try:
-        # ✅ CORREÇÃO: Verificar conteúdo JSON de forma mais robusta
         if not request.json:
             return jsonify({"error": "JSON expected"}), 400
             
@@ -110,7 +274,6 @@ def login():
         if not username or not password:
             return jsonify({"error": "Username e password são obrigatórios"}), 400
         
-        # ✅ CORREÇÃO: Verificar usuário e senha
         if username in users_db:
             if check_password_hash(users_db[username], password):
                 access_token = create_access_token(identity=username)
@@ -124,7 +287,7 @@ def login():
         return jsonify({"error": "Credenciais inválidas"}), 401
     
     except Exception as e:
-        print(f"Erro no login: {str(e)}")  # Para debug nos logs
+        print(f"Erro no login: {str(e)}")
         return jsonify({"error": "Erro interno do servidor"}), 500
 
 # 🔒 ROTA PROTEGIDA - Listar usuários
@@ -152,7 +315,7 @@ def get_user(user_id):
     
     return jsonify(user)
 
-# ✅ CORREÇÃO: Adicionar handler para erros do JWT
+# ✅ Handlers para erros do JWT
 @jwt.invalid_token_loader
 def invalid_token_callback(error):
     return jsonify({
@@ -182,6 +345,11 @@ def add_security_headers(response):
     response.headers['X-XSS-Protection'] = '1; mode=block'
     response.headers['Strict-Transport-Security'] = 'max-age=31536000; includeSubDomains'
     return response
+
+# Servir arquivos estáticos
+@app.route('/static/<path:filename>')
+def serve_static(filename):
+    return send_from_directory('static', filename)
 
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))
