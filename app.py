@@ -371,6 +371,19 @@ def add_security_headers(response):
 def serve_static(filename):
     return send_from_directory('static', filename)
 
+@app.route('/minha-pagina')
+def minha_pagina():
+    return '''
+    <html>
+    <body>
+        <h1>Minha Primeira Página Web</h1>
+        <p>Olá! Esta página usa a API.</p>
+        <button onclick="alert('Botão clicado!')">Clique Aqui</button>
+        <p><a href="/">Voltar</a></p>
+    </body>
+    </html>
+    '''
+
 # Executar a aplicação
 if __name__ == '__main__':
     port = int(os.environ.get("PORT", 5000))  # Porta padrão 5000, ou definida pela variável de ambiente
